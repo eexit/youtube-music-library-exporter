@@ -1,0 +1,139 @@
+#!/usr/bin/env php
+<?php
+
+declare(strict_types=1);
+
+require_once __DIR__ .'/vendor/autoload.php';
+
+use Symfony\Component\Process\Exception\ProcessFailedException;
+use Symfony\Component\Process\Process;
+use Symfony\Component\Process\ExecutableFinder;
+use Symfony\Component\Console\Command\Command;
+use Symfony\Component\Console\Helper\ProgressBar;
+use Symfony\Component\Console\Input\InputInterface;
+use Symfony\Component\Console\Input\InputOption;
+use Symfony\Component\Console\Output\OutputInterface;
+use Symfony\Component\Console\SingleCommandApplication;
+use Symfony\Component\Console\Style\SymfonyStyle;
+use Monolog\Logger;
+use Monolog\Handler\StreamHandler;
+
+(new SingleCommandApplication())
+    ->setVersion('0.1.0')
+    ->addOption('metadata-file', null, InputOption::VALUE_REQUIRED, 'Path to the metadata.json file', './metadata.json')
+    ->addOption('cookies-file', null, InputOption::VALUE_REQUIRED, 'Path to the youtube.com_cookies.txt file', './youtube.com_cookies.txt')
+    ->addOption('output-dir', null, InputOption::VALUE_REQUIRED, 'Path where songs will be downloaded', './downloads')
+    ->addOption('force', 'f', InputOption::VALUE_NONE, 'Set this option to re-download existing songs')
+    ->addOption('log-level', 'l', InputOption::VALUE_REQUIRED, 'Set logging level', Logger::INFO)
+    ->setCode(function (InputInterface $input, OutputInterface $output) {
+        $logger = new Logger(basename(__FILE__));
+        $logger->pushHandler(
+            new StreamHandler(
+                __DIR__.'/'.basename(__FILE__).'.log',
+                $input->getOption('log-level')
+            )
+        );
+
+        $logger->info('command started');
+
+        $io = new SymfonyStyle($input, $output);
+        $io->title('YouTube Music Upload Downloader');
+
+        $data = json_decode(file_get_contents($input->getOption('metadata-file')), true);
+        $count = \count($data);
+        if (false === $data || 0 === $count) {
+            $io->error('Empty or not found metadata-file');
+
+            return Command::INVALID;
+        }
+
+        if (!file_exists($input->getOption('cookies-file'))) {
+            $io->error('cookies-file not found');
+
+            return Command::INVALID;
+        }
+
+        $io->text('Will now download '.$count.' songs:');
+        
+        $progressBar = new ProgressBar($output);
+        $progressBar->setFormat('verbose');
+        $progressBar->start($count);
+
+        $ytdlp = (new ExecutableFinder())->find('yt-dlp');
+        $cookiesFile = $input->getOption('cookies-file');
+        $outputDir = rtrim($input->getOption('output-dir'), '/');
+        $shouldForce = $input->getOption('force');
+
+        // This is the yt-dlp command, you can add/remove options as needed
+        $cmdTemplate = <<<CMD
+        %s
+        --format bestaudio
+        --extract-audio
+        --audio-format best
+        --no-abort-on-error
+        --ignore-config
+        --no-warnings
+        --no-progress
+        --audio-quality 0
+        --no-mtime
+        --cookies "%s"
+        --parse-metadata "%%(artist|%s)s:%%(meta_artist)s"
+        --embed-metadata
+        --embed-thumbnail
+        --output "%s.%%(ext)s"
+        %s
+        CMD;
+
+        foreach ($data as $item) {
+            try {
+                // Escape double quotes
+                $path = addcslashes($outputDir.'/'.$item['id'], '"');
+
+                if (!$shouldForce && \count(glob($path . '*'))) {
+                    $logger->info('skipped', ['id' => $item['id'], 'song_path' => $path]);
+                    $progressBar->advance();
+                    continue;
+                }
+
+                $cmd = str_replace(
+                    PHP_EOL,
+                    ' ',
+                    sprintf(
+                        $cmdTemplate,
+                        $ytdlp,
+                        $cookiesFile,
+                        $item['artist'],
+                        $path,
+                        $item['href']
+                    )
+                );
+
+                $logger->debug('cmd', ['id' => $item['id'], 'cmd' => $cmd]);
+
+                $proc = Process::fromShellCommandline($cmd);
+                $proc->setTimeout(null);
+                $proc->setIdleTimeout(null);
+                $proc->run();
+
+                if (!$proc->isSuccessful()) {
+                    throw new ProcessFailedException($proc);
+                }
+            
+                $logger->info('success', ['id' => $item['id'], 'song_path' => $path]);
+                $progressBar->advance();
+            } catch (\Throwable $e) {
+                $logger->error('error: '.$e->getMessage(), [
+                    'song' => $item,
+                    'trace' => $e->getTraceAsString()
+                ]);
+                throw $e;
+            }
+        }
+
+        $progressBar->finish();
+        $io->success('done');
+        $logger->info('command finished');
+
+        return Command::SUCCESS;
+    })
+    ->run();

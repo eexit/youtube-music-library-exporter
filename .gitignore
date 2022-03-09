@@ -1,0 +1,6 @@
+vendor
+downloads
+metadata.json
+*.html
+*.log
+*cookies*

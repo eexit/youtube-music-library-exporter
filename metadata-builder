@@ -1,0 +1,85 @@
+#!/usr/bin/env php
+<?php
+
+declare(strict_types=1);
+
+ini_set('memory_limit', -1);
+
+use Symfony\Component\DomCrawler\Crawler;
+use Symfony\Component\Console\Command\Command;
+use Symfony\Component\Console\Helper\ProgressBar;
+use Symfony\Component\Console\Input\InputInterface;
+use Symfony\Component\Console\Input\InputOption;
+use Symfony\Component\Console\Output\OutputInterface;
+use Symfony\Component\Console\SingleCommandApplication;
+use Symfony\Component\Console\Style\SymfonyStyle;
+
+require_once __DIR__ .'/vendor/autoload.php';
+
+(new SingleCommandApplication())
+    ->setVersion('0.1.0')
+    ->addOption('html-file', null, InputOption::VALUE_REQUIRED, 'Path to the HTML file', './YouTube Music.html')
+    ->addOption('metadata-file', null, InputOption::VALUE_REQUIRED, 'Path to the metadata.json file', './metadata.json')
+    ->setCode(function (InputInterface $input, OutputInterface $output) {
+        $io = new SymfonyStyle($input, $output);
+        $io->title('YouTube Music Upload Metadata Generator');
+
+        $htmlFile = $input->getOption('html-file');
+        $metadataFile = $input->getOption('metadata-file');
+
+        if (!file_exists($htmlFile)) {
+            $io->error('html-file not found');
+
+            return Command::INVALID;
+        }
+
+        $io->text(sprintf('Will build %s from %s:', $metadataFile, $htmlFile));
+
+        $crawler = (new Crawler(file_get_contents($htmlFile)))->filter('ytmusic-responsive-list-item-renderer');
+        
+        $progressBar = new ProgressBar($output);
+        $progressBar->setFormat('verbose');
+        $progressBar->start($crawler->count());
+
+        $data = $crawler->each(function (Crawler $node) use ($progressBar) {
+            if (!$node || !\count($node->filter('.title a'))) {
+                $progressBar->advance();
+                return;
+            }
+
+            $qs = [];
+            // Parses the URL to get the ID
+            parse_str(parse_url($node->filter('.title a')->attr('href'), PHP_URL_QUERY), $qs);
+
+            $progressBar->advance();
+            return [
+                'id' => $qs['v'],
+                'album' => $node->filter('.secondary-flex-columns')->children()->eq(1)->text() ?: null,
+                'artist' => $node->filter('.secondary-flex-columns')->children()->eq(0)->text() ?: null,
+                'duration' => $node->filter('.fixed-columns.style-scope.ytmusic-responsive-list-item-renderer')->text(),
+                'href' => $node->filter('.title a')->attr('href'),
+                'is_liked' => match ($node->filter('ytmusic-like-button-renderer')->attr('like-status')) {
+                    'LIKE' => true,
+                    'DISLIKE' => false,
+                    default => null
+                },
+                'title' => $node->filter('.title a')->text(),
+            ];
+        });
+
+        file_put_contents(
+            $metadataFile,
+            json_encode(
+                array_values(
+                    array_filter($data)
+                )
+            )
+        );
+
+        $progressBar->finish();
+        $io->text('');
+        $io->success('done');
+
+        return Command::SUCCESS;
+    })
+    ->run();
