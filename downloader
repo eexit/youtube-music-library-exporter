@@ -3,11 +3,12 @@
 
 declare(strict_types=1);
 
-require_once __DIR__ .'/vendor/autoload.php';
+require_once __DIR__.DIRECTORY_SEPARATOR.'vendor'.DIRECTORY_SEPARATOR.'autoload.php';
+require_once __DIR__.DIRECTORY_SEPARATOR.'util.php';
 
-use Symfony\Component\Process\Exception\ProcessFailedException;
 use Symfony\Component\Process\Process;
 use Symfony\Component\Process\ExecutableFinder;
+use Symfony\Component\Process\Exception\ProcessFailedException;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Helper\ProgressBar;
 use Symfony\Component\Console\Input\InputInterface;
@@ -20,17 +21,18 @@ use Monolog\Handler\StreamHandler;
 
 (new SingleCommandApplication())
     ->setVersion('0.1.0')
-    ->addOption('metadata-file', null, InputOption::VALUE_REQUIRED, 'Path to the metadata.json file', './metadata.json')
-    ->addOption('cookies-file', null, InputOption::VALUE_REQUIRED, 'Path to the youtube.com_cookies.txt file', './youtube.com_cookies.txt')
-    ->addOption('output-dir', null, InputOption::VALUE_REQUIRED, 'Path where songs will be downloaded', './downloads')
+    ->addOption('metadata-file', null, InputOption::VALUE_REQUIRED, 'Path to the metadata.json file', '.'.DIRECTORY_SEPARATOR.'metadata.json')
+    ->addOption('cookies-file', null, InputOption::VALUE_REQUIRED, 'Path to the youtube.com_cookies.txt file', '.'.DIRECTORY_SEPARATOR.'youtube.com_cookies.txt')
+    ->addOption('output-dir', null, InputOption::VALUE_REQUIRED, 'Path where songs will be downloaded', '.'.DIRECTORY_SEPARATOR.'downloads')
+    ->addOption('song-id', null, InputOption::VALUE_REQUIRED, 'Download a specific song')
     ->addOption('force', 'f', InputOption::VALUE_NONE, 'Set this option to re-download existing songs')
     ->addOption('log-level', 'l', InputOption::VALUE_REQUIRED, 'Set logging level', Logger::INFO)
     ->setCode(function (InputInterface $input, OutputInterface $output) {
         $logger = new Logger(basename(__FILE__));
         $logger->pushHandler(
             new StreamHandler(
-                __DIR__.'/'.basename(__FILE__).'.log',
-                $input->getOption('log-level')
+                __DIR__.DIRECTORY_SEPARATOR.basename(__FILE__).'.log',
+                Logger::toMonologLevel($input->getOption('log-level'))
             )
         );
 
@@ -53,46 +55,64 @@ use Monolog\Handler\StreamHandler;
             return Command::INVALID;
         }
 
+        $argSongId = $input->getOption('song-id');
+
+        if ($argSongId) {
+            $count = 1;
+        }
+
         $io->text('Will now download '.$count.' songs:');
-        
+
         $progressBar = new ProgressBar($output);
         $progressBar->setFormat('verbose');
         $progressBar->start($count);
 
         $ytdlp = (new ExecutableFinder())->find('yt-dlp');
         $cookiesFile = $input->getOption('cookies-file');
-        $outputDir = rtrim($input->getOption('output-dir'), '/');
-        $shouldForce = $input->getOption('force');
+        $outputDir = rtrim($input->getOption('output-dir'), DIRECTORY_SEPARATOR);
+        $resume = !$input->getOption('force');
 
         // This is the yt-dlp command, you can add/remove options as needed
-        $cmdTemplate = <<<CMD
+        $cmdTemplate = <<<TPL
         %s
         --format bestaudio
         --extract-audio
         --audio-format best
-        --no-abort-on-error
+        --audio-quality 0
+        --abort-on-error
+        --no-playlist
         --ignore-config
         --no-warnings
         --no-progress
-        --audio-quality 0
         --no-mtime
         --cookies "%s"
-        --parse-metadata "%%(artist|%s)s:%%(meta_artist)s"
+        --parse-metadata " %s: %%(meta_artist)s"
+        %s
         --embed-metadata
         --embed-thumbnail
         --output "%s.%%(ext)s"
-        %s
-        CMD;
+        "%s"
+        TPL;
 
-        foreach ($data as $item) {
+        $albumTemplate = '--parse-metadata " %s: %%(meta_album)s"';
+
+        foreach ($data as $song) {
             try {
-                // Escape double quotes
-                $path = addcslashes($outputDir.'/'.$item['id'], '"');
-
-                if (!$shouldForce && \count(glob($path . '*'))) {
-                    $logger->info('skipped', ['id' => $item['id'], 'song_path' => $path]);
-                    $progressBar->advance();
+                if ($argSongId && $song['id'] !== $argSongId) {
                     continue;
+                }
+
+                try {
+                    $path = getDownloadedSong($outputDir, $song['id']);
+
+                    if ($resume) {
+                        $logger->info('skipped', ['id' => $song['id'], 'song_path' => $path]);
+                        $progressBar->advance();
+                        continue;
+                    }
+                } catch (\InvalidArgumentException) {
+                    // Do nothing here as it's expected for the song to be not
+                    // found in the first place.
                 }
 
                 $cmd = str_replace(
@@ -102,28 +122,35 @@ use Monolog\Handler\StreamHandler;
                         $cmdTemplate,
                         $ytdlp,
                         $cookiesFile,
-                        $item['artist'],
-                        $path,
-                        $item['href']
+                        addcslashes($song['artist'], ':'),
+                        $song['album'] ? sprintf($albumTemplate, addcslashes($song['album'], ':')) : '',
+                        $outputDir.DIRECTORY_SEPARATOR.$song['id'],
+                        $song['href']
                     )
                 );
 
-                $logger->debug('cmd', ['id' => $item['id'], 'cmd' => $cmd]);
+                $logger->debug('cmd', ['id' => $song['id'], 'cmd' => $cmd]);
 
                 $proc = Process::fromShellCommandline($cmd);
                 $proc->setTimeout(null);
                 $proc->setIdleTimeout(null);
                 $proc->run();
 
+                $logger->debug('cmd stdout', ['id' => $song['id'], 'stdout' => $proc->getOutput()]);
+
                 if (!$proc->isSuccessful()) {
+                    $logger->debug('cmd stderr', ['id' => $song['id'], 'stderr' => $proc->getErrorOutput()]);
                     throw new ProcessFailedException($proc);
                 }
-            
-                $logger->info('success', ['id' => $item['id'], 'song_path' => $path]);
+
+                $logger->info('success', [
+                    'id' => $song['id'],
+                    'song_path' => getDownloadedSong($outputDir, $song['id'])
+                ]);
                 $progressBar->advance();
             } catch (\Throwable $e) {
                 $logger->error('error: '.$e->getMessage(), [
-                    'song' => $item,
+                    'song' => $song,
                     'trace' => $e->getTraceAsString()
                 ]);
                 throw $e;
@@ -131,6 +158,8 @@ use Monolog\Handler\StreamHandler;
         }
 
         $progressBar->finish();
+
+        $io->newLine(2);
         $io->success('done');
         $logger->info('command finished');
 

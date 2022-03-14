@@ -14,15 +14,15 @@ use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\SingleCommandApplication;
 use Symfony\Component\Console\Style\SymfonyStyle;
 
-require_once __DIR__ .'/vendor/autoload.php';
+require_once __DIR__.DIRECTORY_SEPARATOR.'vendor'.DIRECTORY_SEPARATOR.'autoload.php';
 
 (new SingleCommandApplication())
     ->setVersion('0.1.0')
-    ->addOption('html-file', null, InputOption::VALUE_REQUIRED, 'Path to the HTML file', './YouTube Music.html')
-    ->addOption('metadata-file', null, InputOption::VALUE_REQUIRED, 'Path to the metadata.json file', './metadata.json')
+    ->addOption('html-file', null, InputOption::VALUE_REQUIRED, 'Path to the HTML file', '.'.DIRECTORY_SEPARATOR.'YouTube Music.html')
+    ->addOption('metadata-file', null, InputOption::VALUE_REQUIRED, 'Path to the metadata.json file', '.'.DIRECTORY_SEPARATOR.'metadata.json')
     ->setCode(function (InputInterface $input, OutputInterface $output) {
         $io = new SymfonyStyle($input, $output);
-        $io->title('YouTube Music Upload Metadata Generator');
+        $io->title('YouTube Music Upload Metadata Extractor');
 
         $htmlFile = $input->getOption('html-file');
         $metadataFile = $input->getOption('metadata-file');
@@ -33,7 +33,7 @@ require_once __DIR__ .'/vendor/autoload.php';
             return Command::INVALID;
         }
 
-        $io->text(sprintf('Will build %s from %s:', $metadataFile, $htmlFile));
+        $io->text(sprintf('Will extract %s from %s:', $metadataFile, $htmlFile));
 
         $crawler = (new Crawler(file_get_contents($htmlFile)))->filter('ytmusic-responsive-list-item-renderer');
         
@@ -57,7 +57,7 @@ require_once __DIR__ .'/vendor/autoload.php';
                 'album' => $node->filter('.secondary-flex-columns')->children()->eq(1)->text() ?: null,
                 'artist' => $node->filter('.secondary-flex-columns')->children()->eq(0)->text() ?: null,
                 'duration' => $node->filter('.fixed-columns.style-scope.ytmusic-responsive-list-item-renderer')->text(),
-                'href' => $node->filter('.title a')->attr('href'),
+                'href' => str_replace('&list=MLPT', '', $node->filter('.title a')->attr('href')),
                 'is_liked' => match ($node->filter('ytmusic-like-button-renderer')->attr('like-status')) {
                     'LIKE' => true,
                     'DISLIKE' => false,
@@ -77,7 +77,7 @@ require_once __DIR__ .'/vendor/autoload.php';
         );
 
         $progressBar->finish();
-        $io->text('');
+        $io->newLine();
         $io->success('done');
 
         return Command::SUCCESS;

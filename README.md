@@ -1,6 +1,6 @@
-# Youtube Music Library Exporter
+# YouTube Music Library Exporter
 
-This tiny project allows you to download in a reliable way your YouTube Music library. I tried [many times](https://support.google.com/youtubemusic/thread/153508023?hl=en) to export all my uploads using Google Takeout but songs were missing and the export is unbelieviably messy.
+This tiny project allows you to download in a more reliable way your YouTube Music library. I tried [many times](https://support.google.com/youtubemusic/thread/153508023?hl=en) to export all my uploads using Google Takeout but songs were missing and the export is unbelieviably messy.
 
 With the help of [yt-dlp](https://github.com/yt-dlp/yt-dlp), I put together several scripts that will semi-automate the export process.
 
@@ -9,7 +9,9 @@ With the help of [yt-dlp](https://github.com/yt-dlp/yt-dlp), I put together seve
 - Parse and format your library's song list metadata
 - Download all songs (embeds song title, artist, album, and thumbnail)
 - Resume-able download script
-- Flexible songs clustering ("artist - album" by default)
+- Songs pre-clustering (by album)
+
+Tested on macOS/PHP 8.1.
 
 ## Installation
 
@@ -41,7 +43,7 @@ Sample:
         "album": "Emotional Technology",
         "artist": "BT",
         "duration": "7:48",
-        "href": "https:\/\/music.youtube.com\/watch?v=iS2LWA7-hkM&list=MLPT",
+        "href": "https:\/\/music.youtube.com\/watch?v=iS2LWA7-hkM",
         "is_liked": null,
         "title": "Paris"
     },
@@ -50,33 +52,35 @@ Sample:
         "album": null,
         "artist": "The Chainsmokers",
         "duration": "3:52",
-        "href": "https:\/\/music.youtube.com\/watch?v=UiEfsYkr4gY&list=MLPT",
+        "href": "https:\/\/music.youtube.com\/watch?v=UiEfsYkr4gY",
         "is_liked": true,
         "title": "Paris (BKAYE Remix)"
     }
 ]
 ```
 
+To generate it, follow these steps:
+
 1. Open <https://music.youtube.com/library/uploaded_songs>
 1. Scroll all the way to the bottom of your list (this may take a while if you have thousands of songs)
 1. Save the page (`CTRL`/`CMD`+`S`) as HTML-only into this project's clone directory
-1. Run the `metadata-builder` script:
+1. Run the `metadata-extractor` script:
 
 ```bash
-❯ ./metadata-builder
+❯ ./metadata-extractor
 
-YouTube Music Upload Metadata Generator
+YouTube Music Upload Metadata Extractor
 =======================================
 
- Will build ./metadata.json from ./YouTube Music.html:
+ Will extract ./metadata.json from ./YouTube Music.html:
  7369/7369 [============================] 100% 7 secs
 
  [OK] done
 ```
 
-You have now a `metadata.json` file containing all the songs info of your entire library. This file is the source of truth for the next scripts. You may add manually missing data like artist or album if required by the de-cluttering script.
+You have now a `metadata.json` file containing all the songs info of your entire library. This file is the source of truth for the next scripts. You may add manually missing data if needed.
 
-See the script's help: `./metadata-builder --help`.
+See the script's help: `./metadata-extractor --help`.
 
 ## Download the songs
 
@@ -98,9 +102,9 @@ You can watch for the logs:
 
 ```bash
 ❯ tail -f downloader.log
-[2022-03-09T17:39:32.453347+00:00] downloader.INFO: success {"id":"k8alCaY3Abs","song_path":"./downloads/k8alCaY3Abs"} []
-[2022-03-09T17:39:58.769715+00:00] downloader.INFO: success {"id":"yBbwMt60j2k","song_path":"./downloads/yBbwMt60j2k"} []
-[2022-03-09T17:40:14.103107+00:00] downloader.INFO: success {"id":"b9-iV9fRkR8","song_path":"./downloads/b9-iV9fRkR8"} []
+[2022-03-14T11:34:22.799174+00:00] downloader.INFO: success {"id":"NZjN83C1K9M","song_path":"./downloads/NZjN83C1K9M.m4a"} []
+[2022-03-14T11:34:30.753464+00:00] downloader.INFO: success {"id":"xIU9tu9l_co","song_path":"./downloads/xIU9tu9l_co.m4a"} []
+[2022-03-14T11:34:37.341654+00:00] downloader.INFO: success {"id":"ca3w36Ua_aM","song_path":"./downloads/ca3w36Ua_aM.m4a"} []
 ```
 
 By default, the script downloads all into the `./downloads` directory and flattens all songs named by their ID. Each song has its metadata/thumbnail embedded.
@@ -112,15 +116,26 @@ See the script's help: `./downloader --help`.
 Use the `clusterer` script to cluster your songs. It will use the `metadata.json` file and songs downloaded into the `./downloads` directory:
 
 ```bash
+
 ```
+
+By default, the script clusters all into the `./clusters` directory and creates one sub-directory per album and leaves the songs without album in the first level:
+
+```
+```
+
+See the script's help: `./clusterer --help`.
+
+## Metadata polishing
+
+If you like your library to be clean and accurate, you can leverage [MusicBrainz Picard](https://picard.musicbrainz.org/)'s Scan feature to fix and rename your songs.
+
+Once again, this is a long and manual process but hopefully, you do only have to do it once.
 
 ---
 
 ## Caveats
 
-Some steps are still manual and tedious and could/should be automated. I believe the songs page HTML source fetching could be done using [Taiko](https://taiko.dev/).
-
-Song downloading process is rather slow (~10s per song) BUT it could be faster if you decide to skip the song's metadata and/or thumbnail. I was able to download all my 7k+ songs library in a few hours vs a day when omitting all these info.
-I believe we could improve this part by adding some concurrency :-)
-
-
+- Song order is not restored and metadata information is at its most basic. This is still way better than the regular Takeout export. The most automated way to restore the song order would be to crawl each album/playlist page and parse it using the metadata extractor script, then update the clusterer script logic to handle order file naming.
+- Some steps are still manual and tedious and could/should be automated. I believe the songs page HTML source fetching could be done using [Taiko](https://taiko.dev/).
+- Song downloading process is rather slow (~10s per song) BUT it could be faster if you decide to skip the song's metadata and/or thumbnail. I was able to download all my 7k+ songs library in a few hours vs a day when omitting all these info.

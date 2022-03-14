@@ -1,0 +1,93 @@
+#!/usr/bin/env php
+<?php
+
+declare(strict_types=1);
+
+ini_set('memory_limit', -1);
+
+use Symfony\Component\Console\Command\Command;
+use Symfony\Component\Console\Helper\ProgressBar;
+use Symfony\Component\Console\Input\InputInterface;
+use Symfony\Component\Console\Input\InputOption;
+use Symfony\Component\Console\Output\OutputInterface;
+use Symfony\Component\Console\SingleCommandApplication;
+use Symfony\Component\Console\Style\SymfonyStyle;
+
+require_once __DIR__.DIRECTORY_SEPARATOR.'vendor'.DIRECTORY_SEPARATOR.'autoload.php';
+require_once __DIR__.DIRECTORY_SEPARATOR.'util.php';
+
+(new SingleCommandApplication())
+    ->setVersion('0.1.0')
+    ->addOption('metadata-file', null, InputOption::VALUE_REQUIRED, 'Path to the metadata.json file', '.'.DIRECTORY_SEPARATOR.'metadata.json')
+    ->addOption('downloads-dir', null, InputOption::VALUE_REQUIRED, 'Path where songs are downloaded', '.'.DIRECTORY_SEPARATOR.'downloads')
+    ->addOption('clusters-dir', null, InputOption::VALUE_REQUIRED, 'Path where clusters will be saved', '.'.DIRECTORY_SEPARATOR.'clusters')
+    ->setCode(function (InputInterface $input, OutputInterface $output) {
+        $io = new SymfonyStyle($input, $output);
+        $io->title('YouTube Music Upload Cluster Generator');
+
+        $downloadsDir = $input->getOption('downloads-dir');
+        $clustersDir = rtrim($input->getOption('clusters-dir'), DIRECTORY_SEPARATOR);
+
+        $data = json_decode(file_get_contents($input->getOption('metadata-file')), true);
+        $count = \count($data);
+        if (false === $data || 0 === $count) {
+            $io->error('Empty or not found metadata-file');
+
+            return Command::INVALID;
+        }
+
+        $io->text(sprintf('Will cluster songs from %s to %s:', $downloadsDir, $clustersDir));
+        
+        $progressBar = new ProgressBar($output);
+        $progressBar->setFormat('verbose');
+        $progressBar->start($count);
+
+        $sanitize = function (string $input): string {
+            return str_replace(DIRECTORY_SEPARATOR, '-', $input);
+        };
+
+        foreach ($data as $song) {
+            try {
+                $path = getDownloadedSong($input->getOption('downloads-dir'), $song['id']);
+                $ext = pathinfo($path, flags: \PATHINFO_EXTENSION);
+
+                if ($song['album']) {
+                    @mkdir($clustersDir.DIRECTORY_SEPARATOR.$sanitize($song['album']), recursive: true);
+                    copy(
+                        $path,
+                        $clustersDir
+                            .DIRECTORY_SEPARATOR
+                            .$sanitize($song['album'])
+                            .DIRECTORY_SEPARATOR
+                            .$sanitize($song['title'])
+                            .'.'
+                            .$ext
+                    );
+                } else {
+                    copy(
+                        $path,
+                        $clustersDir
+                            .DIRECTORY_SEPARATOR
+                            .$sanitize($song['artist'])
+                            .' - '
+                            .$sanitize($song['title'])
+                            .'.'
+                            .$ext
+                    );
+                }
+
+                @unlink($path);
+                $progressBar->advance();
+            } catch (\Throwable $e) {
+                // $progressBar->advance();
+                throw $e;
+            }
+        }
+
+        $progressBar->finish();
+        $io->newLine(2);
+        $io->success('done');
+
+        return Command::SUCCESS;
+    })
+    ->run();
