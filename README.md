@@ -113,18 +113,53 @@ See the script's help: `./downloader --help`.
 
 ## Songs clustering
 
-Use the `clusterer` script to cluster your songs. It will use the `metadata.json` file and songs downloaded into the `./downloads` directory:
-
-```bash
-
-```
+Use the `clusterer` script to cluster your songs. It will use the `metadata.json` file and songs downloaded into the `./downloads` directory.
 
 By default, the script clusters all into the `./clusters` directory and creates one sub-directory per album and leaves the songs without album in the first level:
 
 ```
+clusters
+├── Guiding Light - Gettin' Rolled Out
+│   ├── Gettin' Rolled Out.m4a
+│   └── Guiding Light (feat. Ali).m4a
+├── Guru Josh Project - Infinity 2008 (Klaas Remix).m4a
+├── Guys My Age (Prince Fox Remix)
+│   └── Guys My Age (Prince Fox Remix).m4a
+├── Ham Demo and Justin Time - Here I Am (Ham 2005 Remix).m4a
+├── Happy morning
+│   ├── Get Down On It.m4a
+│   ├── High Energy.m4a
+│   ├── I got you (I feel good).m4a
+│   ├── Ring My Bell.m4a
+│   └── We are family (live).m4a
+├── Hardcore 2004 - You Ready?
+│   ├── Hardcore 2004.m4a
+│   └── You Ready?.m4a
+├── Hardcore Classics Disc 3
+│   └── Be Happy.m4a
+├── Harlea - Miss Me.m4a
+├── Haze and Weaver vs. Shox - Get up 2004.m4a
+├── Heartburn
+│   └── Heartburn.m4a
 ```
 
 See the script's help: `./clusterer --help`.
+
+## Playlists
+
+For playlists, it's basically the same process as the metadata extractor: save the playlist HTML page locally, then run the script `playlist-extrator`. It will create a basic text file of this format:
+
+```
+[title] by [artist]
+[title] by [artist]
+...
+```
+
+See the script's help: `./playlist-extractor --help`.
+
+Adapt the format to your needs.
+
+:warning: Some titles in the playlist aren't part of your library so you may need to download them first.
 
 ## Metadata polishing
 
@@ -138,4 +173,4 @@ Once again, this is a long and manual process but hopefully, you do only have to
 
 - Song order is not restored and metadata information is at its most basic. This is still way better than the regular Takeout export. The most automated way to restore the song order would be to crawl each album/playlist page and parse it using the metadata extractor script, then update the clusterer script logic to handle order file naming.
 - Some steps are still manual and tedious and could/should be automated. I believe the songs page HTML source fetching could be done using [Taiko](https://taiko.dev/).
-- Song downloading process is rather slow (~10s per song) BUT it could be faster if you decide to skip the song's metadata and/or thumbnail. I was able to download all my 7k+ songs library in a few hours vs a day when omitting all these info.
+- Song downloading process is rather slow (~10s per song) BUT it could be faster if you decide to skip the song's metadata and/or thumbnail. I was able to download all my 7k+ songs library in a couple of hours vs a day when embedding all these info.
